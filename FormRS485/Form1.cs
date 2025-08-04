@@ -33,7 +33,7 @@ namespace projectRS485
         private void InitializeInputTimer()
         {
             inputReadTimer = new System.Windows.Forms.Timer();
-            inputReadTimer.Interval = 2000; // 2 giây
+            inputReadTimer.Interval = 500; // 500ms để đọc nhanh qua 4 input
             inputReadTimer.Tick += InputReadTimer_Tick;
         }
 
@@ -64,14 +64,14 @@ namespace projectRS485
 
         private string GetInputReadCommand(int inputNumber)
         {
-            // Lệnh Modbus đọc trạng thái input (function code 02 - Read Discrete Inputs)
+            // Lệnh Modbus đọc trạng thái từng input (function code 02 - Read Discrete Inputs)
             // Format: Device_ID Function_Code Start_Address_Hi Start_Address_Lo Quantity_Hi Quantity_Lo CRC_Lo CRC_Hi
             switch (inputNumber)
             {
-                case 1: return "FE 02 00 00 00 01 A9 D6"; // Đọc input 1
-                case 2: return "FE 02 00 01 00 01 F8 16"; // Đọc input 2  
-                case 3: return "FE 02 00 02 00 01 08 16"; // Đọc input 3
-                case 4: return "FE 02 00 03 00 01 59 D6"; // Đọc input 4
+                case 1: return "FE 02 00 00 00 01 AD C5"; // Đọc input 1
+                case 2: return "FE 02 00 01 00 01 FC 05"; // Đọc input 2  
+                case 3: return "FE 02 00 02 00 01 0C 05"; // Đọc input 3
+                case 4: return "FE 02 00 03 00 01 5D C5"; // Đọc input 4
                 default: return "";
             }
         }
