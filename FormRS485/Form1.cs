@@ -10,6 +10,7 @@ namespace projectRS485
         private RS485Port rs485 = new RS485Port();
         private InputManager inputManager;
         private OutputManager outputManager;
+        private ProductCountManager productCountManager;
 
         private bool isWaitingForResponse = false;
         private string lastSentCommand = "";
@@ -38,6 +39,23 @@ namespace projectRS485
                 btnOut1, btnOut2, btnOut3, btnOut4,
                 txtOut1, txtOut2, txtOut3, txtOut4);
             outputManager.OnSendCommand += HandleSendCommand;
+
+            // Khởi tạo ProductCountManager
+            productCountManager = new ProductCountManager(rs485, txtSlaveID, btnConnectSlaveID, dataGridViewProducts);
+            productCountManager.OnSendCommand += HandleSendCommand;
+            productCountManager.OnSlaveConnectionChanged += ProductCountManager_OnSlaveConnectionChanged;
+        }
+
+        private void ProductCountManager_OnSlaveConnectionChanged(bool connected, string slaveID)
+        {
+            // Xử lý khi trạng thái kết nối slave thay đổi
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => ProductCountManager_OnSlaveConnectionChanged(connected, slaveID)));
+                return;
+            }
+
+            Console.WriteLine($"Slave {slaveID} connection: {(connected ? "Connected" : "Disconnected")}");
         }
 
         private void HandleSendCommand(string command, string commandId)
@@ -49,6 +67,8 @@ namespace projectRS485
                 isWaitingForResponse = true;
                 lastSentCommand = commandId;
                 rs485.SendHex(command);
+
+                Console.WriteLine($"Sent: {command} | Command ID: {commandId}");
             }
             catch (Exception ex)
             {
@@ -107,6 +127,14 @@ namespace projectRS485
                 else if (lastSentCommand.StartsWith("RELAY_"))
                 {
                     outputManager.ProcessOutputResponse(hexData, lastSentCommand);
+                }
+                else if (lastSentCommand.StartsWith("READ_COUNT_"))
+                {
+                    productCountManager.ProcessCountResponse(hexData, lastSentCommand);
+                }
+                else if (lastSentCommand.StartsWith("TEST_SLAVE_"))
+                {
+                    productCountManager.ProcessSlaveTestResponse(hexData, lastSentCommand);
                 }
 
                 isWaitingForResponse = false;
@@ -190,6 +218,7 @@ namespace projectRS485
         {
             // Dọn dẹp resources
             inputManager?.Dispose();
+            productCountManager?.Dispose();
 
             if (rs485.IsOpen) rs485.Close();
         }
@@ -227,6 +256,52 @@ namespace projectRS485
         public void SetRelayState(int relayNumber, bool state)
         {
             outputManager.SetRelayState(relayNumber, state);
+        }
+
+        // Methods cho Product Count Manager
+        public int GetProductCount(int productIndex)
+        {
+            return productCountManager.GetProductCount(productIndex);
+        }
+
+        public void ResetAllProductCounts()
+        {
+            productCountManager.ResetAllCounts();
+        }
+
+        public void AddNewProduct(string productName)
+        {
+            productCountManager.AddProduct(productName);
+        }
+
+        public bool IsSlaveConnected()
+        {
+            return productCountManager.IsSlaveConnected;
+        }
+
+        public string GetCurrentSlaveID()
+        {
+            return productCountManager.CurrentSlaveID;
+        }
+
+        // Event handlers cho các control mới (nếu cần thêm buttons)
+
+        private void btnAddProduct_Click_1(object sender, EventArgs e)
+        {
+            string productName = Microsoft.VisualBasic.Interaction.InputBox(
+                "Nhập tên sản phẩm mới:",
+                "Thêm sản phẩm",
+                "Sản phẩm mới");
+
+            if (!string.IsNullOrWhiteSpace(productName))
+            {
+                productCountManager.AddProduct(productName);
+            }
+        }
+
+        private void btnResetCounts_Click_1(object sender, EventArgs e)
+        {
+            productCountManager.ResetAllCounts();
         }
     }
 }
