@@ -48,13 +48,11 @@
             this.label4 = new System.Windows.Forms.Label();
             this.txtIn2 = new System.Windows.Forms.TextBox();
             this.txtIn1 = new System.Windows.Forms.TextBox();
-            this.dataGridViewProducts = new System.Windows.Forms.DataGridView();
+            this.dgvProducts = new System.Windows.Forms.DataGridView();
             this.lblSlaveInfo = new System.Windows.Forms.Label();
             this.txtSlaveID = new System.Windows.Forms.TextBox();
-            this.btnResetCounts = new System.Windows.Forms.Button();
-            this.btnAddProduct = new System.Windows.Forms.Button();
             this.btnConnectSlaveID = new System.Windows.Forms.Button();
-            ((System.ComponentModel.ISupportInitialize)(this.dataGridViewProducts)).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)(this.dgvProducts)).BeginInit();
             this.SuspendLayout();
             // 
             // comboBoxComPort
@@ -299,17 +297,17 @@
             this.txtIn1.Size = new System.Drawing.Size(24, 22);
             this.txtIn1.TabIndex = 10;
             // 
-            // dataGridViewProducts
+            // dgvProducts
             // 
-            this.dataGridViewProducts.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
+            this.dgvProducts.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left) 
             | System.Windows.Forms.AnchorStyles.Right)));
-            this.dataGridViewProducts.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            this.dataGridViewProducts.Location = new System.Drawing.Point(372, 255);
-            this.dataGridViewProducts.Name = "dataGridViewProducts";
-            this.dataGridViewProducts.RowHeadersWidth = 51;
-            this.dataGridViewProducts.RowTemplate.Height = 24;
-            this.dataGridViewProducts.Size = new System.Drawing.Size(510, 150);
-            this.dataGridViewProducts.TabIndex = 32;
+            this.dgvProducts.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            this.dgvProducts.Location = new System.Drawing.Point(372, 255);
+            this.dgvProducts.Name = "dgvProducts";
+            this.dgvProducts.RowHeadersWidth = 51;
+            this.dgvProducts.RowTemplate.Height = 24;
+            this.dgvProducts.Size = new System.Drawing.Size(510, 150);
+            this.dgvProducts.TabIndex = 32;
             // 
             // lblSlaveInfo
             // 
@@ -327,26 +325,6 @@
             this.txtSlaveID.Size = new System.Drawing.Size(100, 22);
             this.txtSlaveID.TabIndex = 34;
             // 
-            // btnResetCounts
-            // 
-            this.btnResetCounts.Location = new System.Drawing.Point(32, 337);
-            this.btnResetCounts.Name = "btnResetCounts";
-            this.btnResetCounts.Size = new System.Drawing.Size(144, 23);
-            this.btnResetCounts.TabIndex = 36;
-            this.btnResetCounts.Text = "Reset";
-            this.btnResetCounts.UseVisualStyleBackColor = true;
-            this.btnResetCounts.Click += new System.EventHandler(this.btnResetCounts_Click_1);
-            // 
-            // btnAddProduct
-            // 
-            this.btnAddProduct.Location = new System.Drawing.Point(208, 337);
-            this.btnAddProduct.Name = "btnAddProduct";
-            this.btnAddProduct.Size = new System.Drawing.Size(142, 23);
-            this.btnAddProduct.TabIndex = 37;
-            this.btnAddProduct.Text = "Add product";
-            this.btnAddProduct.UseVisualStyleBackColor = true;
-            this.btnAddProduct.Click += new System.EventHandler(this.btnAddProduct_Click_1);
-            // 
             // btnConnectSlaveID
             // 
             this.btnConnectSlaveID.Location = new System.Drawing.Point(240, 277);
@@ -360,11 +338,9 @@
             // 
             this.ClientSize = new System.Drawing.Size(1139, 440);
             this.Controls.Add(this.btnConnectSlaveID);
-            this.Controls.Add(this.btnAddProduct);
-            this.Controls.Add(this.btnResetCounts);
             this.Controls.Add(this.txtSlaveID);
             this.Controls.Add(this.lblSlaveInfo);
-            this.Controls.Add(this.dataGridViewProducts);
+            this.Controls.Add(this.dgvProducts);
             this.Controls.Add(this.txtOut3);
             this.Controls.Add(this.txtOut4);
             this.Controls.Add(this.txtOut1);
@@ -397,7 +373,7 @@
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "RS485 WinForms Demo";
             this.Load += new System.EventHandler(this.Form1_Load);
-            ((System.ComponentModel.ISupportInitialize)(this.dataGridViewProducts)).EndInit();
+            ((System.ComponentModel.ISupportInitialize)(this.dgvProducts)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
 
@@ -423,11 +399,9 @@
         private System.Windows.Forms.Label label4;
         private System.Windows.Forms.TextBox txtIn2;
         private System.Windows.Forms.TextBox txtIn1;
-        private System.Windows.Forms.DataGridView dataGridViewProducts;
+        private System.Windows.Forms.DataGridView dgvProducts;
         private System.Windows.Forms.Label lblSlaveInfo;
         private System.Windows.Forms.TextBox txtSlaveID;
-        private System.Windows.Forms.Button btnResetCounts;
-        private System.Windows.Forms.Button btnAddProduct;
         private System.Windows.Forms.Button btnConnectSlaveID;
     }
 }

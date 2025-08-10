@@ -1,6 +1,5 @@
 ﻿using FormRS485;
 using System;
-using System.Collections.Generic;
 using System.Data;
 using System.Drawing;
 using System.Windows.Forms;
@@ -12,499 +11,412 @@ namespace projectRS485
         private RS485Port rs485;
         private TextBox txtSlaveID;
         private Button btnConnectSlaveID;
-        private DataGridView dataGridViewProducts;
+        private DataGridView dgvProducts;
+        private InputManager inputManager;
 
-        // Quản lý Slave device
-        private string currentSlaveID = "";
+        // Slave ID hiện tại
+        private byte currentSlaveID = 0xFE; // Mặc định broadcast address
         private bool isSlaveConnected = false;
 
-        // Timer cho việc đọc input để đếm sản phẩm
-        private System.Windows.Forms.Timer productCountTimer;
-        private int currentInputIndex = 0;
-
-        // Dữ liệu sản phẩm
-        private DataTable productTable;
-        private List<ProductInfo> products;
-
-        // Trạng thái input trước đó để phát hiện thay đổi
+        // Trạng thái đếm sản phẩm
         private bool[] previousInputStates = new bool[4];
-        private bool[] currentInputStates = new bool[4];
+        private int[] productCounts = new int[4]; // Đếm cho từng input
 
         // Event để thông báo khi có yêu cầu gửi lệnh
         public event Action<string, string> OnSendCommand;
-        public event Action<bool, string> OnSlaveConnectionChanged;
 
-        public ProductCountManager(RS485Port rs485Port, TextBox txtSlaveID, Button btnConnectSlaveID, DataGridView dataGridViewProducts)
+        public ProductCountManager(RS485Port rs485Port, TextBox txtSlaveID, Button btnConnectSlaveID,
+                                   DataGridView dgvProducts, InputManager inputManager)
         {
             this.rs485 = rs485Port;
             this.txtSlaveID = txtSlaveID;
             this.btnConnectSlaveID = btnConnectSlaveID;
-            this.dataGridViewProducts = dataGridViewProducts;
+            this.dgvProducts = dgvProducts;
+            this.inputManager = inputManager;
 
-            InitializeProductData();
-            InitializeTimer();
-            SetupEvents();
+            InitializeControls();
             InitializeDataGridView();
-        }
 
-        private void InitializeProductData()
-        {
-            products = new List<ProductInfo>
+            // Đăng ký timer kiểm tra thay đổi trạng thái input để đếm sản phẩm
+            if (inputManager != null)
             {
-                new ProductInfo { Name = "Sản phẩm 1", Count = 10, InputChannel = 1 },
-               // new ProductInfo { Name = "Sản phẩm 2", Count = 0, InputChannel = 2 },
-              //  new ProductInfo { Name = "Sản phẩm 3", Count = 0, InputChannel = 3 },
-               // new ProductInfo { Name = "Sản phẩm 4", Count = 0, InputChannel = 4 }
-            };
-
-            // Khởi tạo DataTable
-            productTable = new DataTable();
-            productTable.Columns.Add("Sản phẩm", typeof(string));
-            productTable.Columns.Add("Số lượng", typeof(int));
-
-            UpdateProductDataGrid();
-        }
-
-        private void InitializeDataGridView()
-        {
-            if (dataGridViewProducts == null) return;
-
-            dataGridViewProducts.DataSource = productTable;
-            dataGridViewProducts.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
-            dataGridViewProducts.ReadOnly = false; // Cho phép edit tên sản phẩm
-            dataGridViewProducts.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-
-            // Chỉ cho phép edit cột "Sản phẩm", không cho edit cột "Số lượng"
-            if (dataGridViewProducts.Columns.Count > 1)
-            {
-                dataGridViewProducts.Columns["Số lượng"].ReadOnly = true;
-            }
-
-            // Định dạng header
-            dataGridViewProducts.ColumnHeadersDefaultCellStyle.BackColor = Color.Navy;
-            dataGridViewProducts.ColumnHeadersDefaultCellStyle.ForeColor = Color.White;
-            dataGridViewProducts.ColumnHeadersDefaultCellStyle.Font = new Font("Arial", 10, FontStyle.Bold);
-
-            // Định dạng alternating rows
-            dataGridViewProducts.AlternatingRowsDefaultCellStyle.BackColor = Color.LightGray;
-            dataGridViewProducts.DefaultCellStyle.SelectionBackColor = Color.DarkSlateBlue;
-
-            // Thêm context menu để xóa sản phẩm
-            ContextMenuStrip contextMenu = new ContextMenuStrip();
-            ToolStripMenuItem deleteItem = new ToolStripMenuItem("Xóa sản phẩm");
-            deleteItem.Click += (s, e) => {
-                if (dataGridViewProducts.SelectedRows.Count > 0)
-                {
-                    int selectedIndex = dataGridViewProducts.SelectedRows[0].Index;
-                    if (MessageBox.Show("Bạn có chắc muốn xóa sản phẩm này?", "Xác nhận",
-                        MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
-                    {
-                        RemoveProduct(selectedIndex);
-                    }
-                }
-            };
-            contextMenu.Items.Add(deleteItem);
-            dataGridViewProducts.ContextMenuStrip = contextMenu;
-
-            // Event khi edit cell
-            dataGridViewProducts.CellEndEdit += DataGridViewProducts_CellEndEdit;
-        }
-
-        private void DataGridViewProducts_CellEndEdit(object sender, DataGridViewCellEventArgs e)
-        {
-            if (e.ColumnIndex == 0 && e.RowIndex >= 0 && e.RowIndex < products.Count) // Cột "Sản phẩm"
-            {
-                string newName = dataGridViewProducts.Rows[e.RowIndex].Cells[e.ColumnIndex].Value?.ToString();
-                if (!string.IsNullOrWhiteSpace(newName))
-                {
-                    EditProduct(e.RowIndex, newName);
-                }
-                else
-                {
-                    // Khôi phục tên cũ nếu để trống
-                    dataGridViewProducts.Rows[e.RowIndex].Cells[e.ColumnIndex].Value = products[e.RowIndex].Name;
-                }
+                var checkTimer = new System.Windows.Forms.Timer();
+                checkTimer.Interval = 100; // Kiểm tra mỗi 100ms
+                checkTimer.Tick += CheckInputChanges;
+                checkTimer.Start();
             }
         }
 
-        private void InitializeTimer()
-        {
-            productCountTimer = new System.Windows.Forms.Timer();
-            productCountTimer.Interval = 200; // 200ms để quét nhanh các input
-            productCountTimer.Tick += ProductCountTimer_Tick;
-        }
-
-        private void SetupEvents()
+        private void InitializeControls()
         {
             if (txtSlaveID != null)
             {
-                txtSlaveID.Text = currentSlaveID;
+                txtSlaveID.Text = "254"; // Mặc định broadcast address
+                txtSlaveID.MaxLength = 3;
+                txtSlaveID.KeyPress += TxtSlaveID_KeyPress;
             }
 
             if (btnConnectSlaveID != null)
             {
-                btnConnectSlaveID.Text = "Kết nối slave";
+                btnConnectSlaveID.Text = "Kết nối Slave ID";
+                btnConnectSlaveID.UseVisualStyleBackColor = false;
+                btnConnectSlaveID.BackColor = Color.LightGray;
                 btnConnectSlaveID.Click += BtnConnectSlaveID_Click;
+            }
+        }
+
+        private void InitializeDataGridView()
+        {
+            if (dgvProducts == null) return;
+
+            try
+            {
+                dgvProducts.Columns.Clear();
+
+                // Nền & chữ mặc định
+                dgvProducts.BackgroundColor = Color.White;
+                dgvProducts.DefaultCellStyle.BackColor = Color.White;
+                dgvProducts.DefaultCellStyle.ForeColor = Color.Black;
+
+                // Tắt highlight khi chọn (Selection màu trùng nền)
+                dgvProducts.DefaultCellStyle.SelectionBackColor = dgvProducts.DefaultCellStyle.BackColor;
+                dgvProducts.DefaultCellStyle.SelectionForeColor = dgvProducts.DefaultCellStyle.ForeColor;
+                dgvProducts.RowsDefaultCellStyle.SelectionBackColor = dgvProducts.DefaultCellStyle.BackColor;
+                dgvProducts.RowsDefaultCellStyle.SelectionForeColor = dgvProducts.DefaultCellStyle.ForeColor;
+                dgvProducts.AlternatingRowsDefaultCellStyle.SelectionBackColor = dgvProducts.DefaultCellStyle.BackColor;
+                dgvProducts.AlternatingRowsDefaultCellStyle.SelectionForeColor = dgvProducts.DefaultCellStyle.ForeColor;
+
+                // Header (giữ nguyên style header, không ảnh hưởng)
+                dgvProducts.EnableHeadersVisualStyles = false;
+                dgvProducts.ColumnHeadersDefaultCellStyle.BackColor = Color.Navy;
+                dgvProducts.ColumnHeadersDefaultCellStyle.ForeColor = Color.White;
+                dgvProducts.ColumnHeadersDefaultCellStyle.Font = new Font("Arial", 9, FontStyle.Bold);
+
+                // Tạo cột
+                dgvProducts.Columns.Add("InputChannel", "Kênh Input");
+                dgvProducts.Columns.Add("ProductName", "Tên Sản Phẩm");
+                dgvProducts.Columns.Add("Count", "Số Lượng");
+                //dgvProducts.Columns.Add("Status", "Trạng Thái");
+
+                // Thuộc tính cột
+                dgvProducts.Columns["InputChannel"].Width = 80;
+                dgvProducts.Columns["InputChannel"].ReadOnly = true;
+                dgvProducts.Columns["ProductName"].Width = 200;
+                dgvProducts.Columns["Count"].Width = 100;
+                dgvProducts.Columns["Count"].ReadOnly = true;
+                //dgvProducts.Columns["Status"].Width = 100;
+               // dgvProducts.Columns["Status"].ReadOnly = true;
+
+                // Thêm 4 hàng
+                for (int i = 1; i <= 4; i++)
+                {
+                    dgvProducts.Rows.Add($"Input {i}", $"Sản phẩm {i}", "0", "OFF");
+                }
+
+                // Sự kiện chỉnh sửa
+                dgvProducts.CellEndEdit += DgvProducts_CellEndEdit;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Lỗi khởi tạo DataGridView: {ex.Message}");
+            }
+        }
+
+        private void TxtSlaveID_KeyPress(object sender, KeyPressEventArgs e)
+        {
+            // Chỉ cho phép nhập số và phím điều khiển
+            if (!char.IsDigit(e.KeyChar) && !char.IsControl(e.KeyChar))
+            {
+                e.Handled = true;
             }
         }
 
         private void BtnConnectSlaveID_Click(object sender, EventArgs e)
         {
-            if (!rs485.IsOpen)
-            {
-                MessageBox.Show("Vui lòng kết nối RS485 trước!");
-                return;
-            }
-
-            if (!isSlaveConnected)
-            {
-                ConnectToSlave();
-            }
-            else
-            {
-                DisconnectFromSlave();
-            }
-        }
-
-        private void ConnectToSlave()
-        {
             try
             {
-                string slaveID = txtSlaveID?.Text?.Trim() ?? "01";
-                if (string.IsNullOrEmpty(slaveID))
+                if (!rs485.IsOpen)
                 {
-                    MessageBox.Show("Vui lòng nhập Slave ID!");
+                    MessageBox.Show("Vui lòng kết nối cổng RS485 trước!", "Lỗi",
+                                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
 
-                currentSlaveID = slaveID.PadLeft(2, '0');
-
-                // Gửi lệnh test kết nối đến slave
-                string testCommand = GenerateTestSlaveCommand(currentSlaveID);
-                OnSendCommand?.Invoke(testCommand, $"TEST_SLAVE_{currentSlaveID}");
-
-                Console.WriteLine($"Đang kết nối đến Slave {currentSlaveID}...");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Lỗi kết nối slave: {ex.Message}");
-            }
-        }
-
-        private void DisconnectFromSlave()
-        {
-            isSlaveConnected = false;
-            productCountTimer.Stop();
-
-            if (btnConnectSlaveID != null)
-            {
-                btnConnectSlaveID.Text = "Kết nối slave";
-                btnConnectSlaveID.BackColor = SystemColors.Control;
-            }
-
-            OnSlaveConnectionChanged?.Invoke(false, currentSlaveID);
-            Console.WriteLine($"Đã ngắt kết nối Slave {currentSlaveID}");
-        }
-
-        private string GenerateTestSlaveCommand(string slaveID)
-        {
-            // Sử dụng lệnh đọc trạng thái 4 input để test kết nối
-            // Format: [SlaveID] 02 00 00 00 04 [CRC]
-            string baseCommand = $"{slaveID} 02 00 00 00 04";
-            return CalculateCRCAndFormat(baseCommand);
-        }
-
-        private void ProductCountTimer_Tick(object sender, EventArgs e)
-        {
-            if (!isSlaveConnected || !rs485.IsOpen) return;
-
-            try
-            {
-                // Đọc từng input để đếm sản phẩm
-                string readCommand = GenerateInputReadCommand(currentSlaveID, currentInputIndex + 1);
-                if (!string.IsNullOrEmpty(readCommand))
+                if (string.IsNullOrWhiteSpace(txtSlaveID.Text))
                 {
-                    string commandId = $"READ_COUNT_{currentInputIndex + 1}";
-                    OnSendCommand?.Invoke(readCommand, commandId);
+                    MessageBox.Show("Vui lòng nhập Slave ID!", "Lỗi",
+                                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
                 }
 
-                // Chuyển sang input tiếp theo
-                currentInputIndex = (currentInputIndex + 1) % 4;
+                int slaveID;
+                if (!int.TryParse(txtSlaveID.Text, out slaveID) || slaveID < 1 || slaveID > 254)
+                {
+                    MessageBox.Show("Slave ID phải từ 1-254!", "Lỗi",
+                                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                currentSlaveID = (byte)slaveID;
+                isSlaveConnected = true;
+
+                // Cập nhật UI
+                btnConnectSlaveID.BackColor = Color.LightGreen;
+                btnConnectSlaveID.Text = $"Đã kết nối (ID: {slaveID})";
+                txtSlaveID.ReadOnly = true;
+
+                // Test kết nối
+                TestSlaveConnection();
+
+                MessageBox.Show($"Đã kết nối với Slave ID: {slaveID}", "Thành công",
+                                MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Lỗi đọc input cho đếm sản phẩm: {ex.Message}");
+                MessageBox.Show($"Lỗi kết nối Slave ID: {ex.Message}", "Lỗi",
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
-        private string GenerateInputReadCommand(string slaveID, int inputNumber)
+        private void TestSlaveConnection()
         {
-            // Tạo lệnh đọc input theo Modbus protocol từ tài liệu
-            string baseCommand = "";
-            switch (inputNumber)
-            {
-                case 1: baseCommand = $"{slaveID} 02 00 00 00 01"; break;
-                case 2: baseCommand = $"{slaveID} 02 00 01 00 01"; break;
-                case 3: baseCommand = $"{slaveID} 02 00 02 00 01"; break;
-                case 4: baseCommand = $"{slaveID} 02 00 03 00 01"; break;
-                default: return "";
-            }
-
-            return CalculateCRCAndFormat(baseCommand);
-        }
-
-        public void ProcessSlaveTestResponse(string hexData, string lastCommand)
-        {
-            if (string.IsNullOrEmpty(hexData)) return;
-
             try
             {
-                string cleanHex = hexData.Replace(" ", "").ToUpper();
+                string command = GenerateModbusCommand(currentSlaveID, 0x01, 0x0000, 0x0004);
+                OnSendCommand?.Invoke(command, "TEST_SLAVE_CONNECTION");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Lỗi test kết nối slave: {ex.Message}");
+            }
+        }
 
-                // Kiểm tra phản hồi có hợp lệ không
-                if (cleanHex.StartsWith(currentSlaveID.ToUpper()) && cleanHex.Length >= 8)
+        private void DgvProducts_CellEndEdit(object sender, DataGridViewCellEventArgs e)
+        {
+            try
+            {
+                if (dgvProducts.Columns[e.ColumnIndex].Name == "ProductName")
                 {
-                    isSlaveConnected = true;
-                    productCountTimer.Start();
+                    string productName = dgvProducts.Rows[e.RowIndex].Cells["ProductName"].Value == null
+                        ? null
+                        : dgvProducts.Rows[e.RowIndex].Cells["ProductName"].Value.ToString();
 
-                    if (btnConnectSlaveID != null)
+                    if (string.IsNullOrWhiteSpace(productName))
                     {
-                        btnConnectSlaveID.Text = "Ngắt kết nối";
-                        btnConnectSlaveID.BackColor = Color.LightGreen;
-                    }
-
-                    OnSlaveConnectionChanged?.Invoke(true, currentSlaveID);
-                    MessageBox.Show($"Kết nối thành công với Slave {currentSlaveID}!");
-
-                    Console.WriteLine($"Slave {currentSlaveID} connected successfully");
-                }
-                else
-                {
-                    MessageBox.Show($"Không thể kết nối với Slave {currentSlaveID}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Lỗi xử lý phản hồi test slave: {ex.Message}");
-                MessageBox.Show($"Lỗi kết nối Slave: {ex.Message}");
-            }
-        }
-
-        public void ProcessCountResponse(string hexData, string lastCommand)
-        {
-            if (string.IsNullOrEmpty(hexData) || !lastCommand.StartsWith("READ_COUNT_")) return;
-
-            try
-            {
-                string cleanHex = hexData.Replace(" ", "").ToUpper();
-
-                // Phản hồi đọc input: [SlaveID] 02 01 [Status] [CRC]
-                if (cleanHex.StartsWith(currentSlaveID.ToUpper()) && cleanHex.Length >= 10)
-                {
-                    string statusByte = cleanHex.Substring(6, 2);
-                    int inputNumber = int.Parse(lastCommand.Replace("READ_COUNT_", ""));
-                    int inputIndex = inputNumber - 1;
-
-                    int status = Convert.ToInt32(statusByte, 16);
-                    bool inputState = (status & 0x01) != 0;
-
-                    // Lưu trạng thái hiện tại
-                    previousInputStates[inputIndex] = currentInputStates[inputIndex];
-                    currentInputStates[inputIndex] = inputState;
-
-                    // Phát hiện edge từ OFF sang ON (sản phẩm đi qua)
-                    if (!previousInputStates[inputIndex] && currentInputStates[inputIndex])
-                    {
-                        IncrementProductCount(inputNumber);
+                        dgvProducts.Rows[e.RowIndex].Cells["ProductName"].Value = $"Sản phẩm {e.RowIndex + 1}";
                     }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Lỗi xử lý dữ liệu đếm sản phẩm: {ex.Message}");
+                Console.WriteLine($"Lỗi chỉnh sửa cell: {ex.Message}");
             }
         }
 
-        private void IncrementProductCount(int inputChannel)
+        private void CheckInputChanges(object sender, EventArgs e)
         {
+            if (!isSlaveConnected || inputManager == null) return;
+
             try
             {
-                var product = products.Find(p => p.InputChannel == inputChannel);
-                if (product != null)
-                {
-                    product.Count++;
-                    UpdateProductDataGrid();
+                bool[] currentStates = {
+                    inputManager.Input1State,
+                    inputManager.Input2State,
+                    inputManager.Input3State,
+                    inputManager.Input4State
+                };
 
-                    Console.WriteLine($"Sản phẩm {product.Name}: {product.Count}");
+                for (int i = 0; i < 4; i++)
+                {
+                    // Đếm cạnh lên (rising edge)
+                    if (!previousInputStates[i] && currentStates[i])
+                    {
+                        productCounts[i]++;
+                        UpdateProductCount(i, productCounts[i]);
+                    }
+
+                    // Cập nhật trạng thái (không đổi màu)
+                    UpdateInputStatus(i, currentStates[i]);
+
+                    previousInputStates[i] = currentStates[i];
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Lỗi tăng số lượng sản phẩm: {ex.Message}");
+                Console.WriteLine($"Lỗi kiểm tra thay đổi input: {ex.Message}");
             }
         }
 
-        private void UpdateProductDataGrid()
+        private void UpdateProductCount(int inputIndex, int count)
         {
             try
             {
-                if (productTable == null) return;
-
-                productTable.Rows.Clear();
-                foreach (var product in products)
+                if (dgvProducts != null && inputIndex >= 0 && inputIndex < dgvProducts.Rows.Count)
                 {
-                    productTable.Rows.Add(product.Name, product.Count);
-                }
+                    dgvProducts.Rows[inputIndex].Cells["Count"].Value = count.ToString();
 
-                if (dataGridViewProducts != null)
-                {
-                    dataGridViewProducts.Refresh();
+                    // KHÔNG highlight: bỏ đổi màu & bỏ timer xóa highlight
+                    // (cố ý để trống)
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Lỗi cập nhật DataGrid: {ex.Message}");
+                Console.WriteLine($"Lỗi cập nhật số đếm sản phẩm: {ex.Message}");
             }
         }
 
-        private string CalculateCRCAndFormat(string baseCommand)
+        private void UpdateInputStatus(int inputIndex, bool state)
         {
-            // Đây là implementation đơn giản, trong thực tế cần tính CRC16 chính xác
-            // Tạm thời sử dụng các lệnh có sẵn từ tài liệu
-            string cmd = baseCommand.Replace(" ", "");
-
-            // Mapping với các lệnh có sẵn từ tài liệu PDF
-            if (cmd.StartsWith("FE"))
+            try
             {
-                switch (cmd)
+                if (dgvProducts != null && inputIndex >= 0 && inputIndex < dgvProducts.Rows.Count)
                 {
-                    case "FE020000000001": return "FE 02 00 00 00 01 AD C5";
-                    case "FE020001000001": return "FE 02 00 01 00 01 FC 05";
-                    case "FE020002000001": return "FE 02 00 02 00 01 0C 05";
-                    case "FE020003000001": return "FE 02 00 03 00 01 5D C5";
-                    case "FE020000000004": return "FE 02 00 00 00 04 6D C6";
+                    // Chỉ cập nhật text, KHÔNG đổi màu
+                    string status = state ? "ON" : "OFF";
+                    dgvProducts.Rows[inputIndex].Cells["Status"].Value = status;
                 }
             }
-
-            // Trả về command gốc nếu không tìm thấy mapping
-            return baseCommand;
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Lỗi cập nhật trạng thái input: {ex.Message}");
+            }
         }
 
-        // Public methods
-        public void ResetAllCounts()
+        // Tạo lệnh Modbus với Slave ID cụ thể
+        private string GenerateModbusCommand(byte slaveID, byte functionCode, ushort startAddress, ushort quantity)
         {
-            foreach (var product in products)
+            try
             {
-                product.Count = 0;
+                byte[] command = new byte[8];
+                command[0] = slaveID;
+                command[1] = functionCode;
+                command[2] = (byte)(startAddress >> 8);
+                command[3] = (byte)(startAddress & 0xFF);
+                command[4] = (byte)(quantity >> 8);
+                command[5] = (byte)(quantity & 0xFF);
+
+                // Tính CRC16
+                ushort crc = CalculateCRC16(command, 6);
+                command[6] = (byte)(crc & 0xFF);
+                command[7] = (byte)(crc >> 8);
+
+                return RS485Port.ByteArrayToHexString(command);
             }
-            UpdateProductDataGrid();
-            MessageBox.Show("Đã reset tất cả số lượng sản phẩm!");
+            catch
+            {
+                return "";
+            }
         }
 
-        public void AddProduct(string productName)
+        // Tính CRC16 cho Modbus
+        private ushort CalculateCRC16(byte[] data, int length)
         {
-            if (products.Count >= 4)
+            ushort crc = 0xFFFF;
+            for (int i = 0; i < length; i++)
             {
-                MessageBox.Show("Chỉ hỗ trợ tối đa 4 loại sản phẩm (4 kênh input)!");
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(productName))
-            {
-                MessageBox.Show("Tên sản phẩm không được để trống!");
-                return;
-            }
-
-            // Kiểm tra trùng tên
-            if (products.Exists(p => p.Name.Equals(productName.Trim(), StringComparison.OrdinalIgnoreCase)))
-            {
-                MessageBox.Show("Sản phẩm đã tồn tại!");
-                return;
-            }
-
-            var newProduct = new ProductInfo
-            {
-                Name = productName.Trim(),
-                Count = 0,
-                InputChannel = products.Count + 1
-            };
-
-            products.Add(newProduct);
-            UpdateProductDataGrid();
-
-            MessageBox.Show($"Đã thêm sản phẩm: {productName.Trim()} (Kênh {newProduct.InputChannel})");
-            Console.WriteLine($"Added product: {productName} on channel {newProduct.InputChannel}");
-        }
-
-        public void RemoveProduct(int productIndex)
-        {
-            if (productIndex >= 0 && productIndex < products.Count)
-            {
-                string productName = products[productIndex].Name;
-                products.RemoveAt(productIndex);
-
-                // Cập nhật lại input channel cho các sản phẩm còn lại
-                for (int i = 0; i < products.Count; i++)
+                crc ^= data[i];
+                for (int j = 0; j < 8; j++)
                 {
-                    products[i].InputChannel = i + 1;
+                    if ((crc & 0x0001) == 1)
+                        crc = (ushort)((crc >> 1) ^ 0xA001);
+                    else
+                        crc = (ushort)(crc >> 1);
+                }
+            }
+            return crc;
+        }
+
+        // Reset số đếm sản phẩm
+        public void ResetProductCounts()
+        {
+            try
+            {
+                for (int i = 0; i < 4; i++)
+                {
+                    productCounts[i] = 0;
+                    if (dgvProducts != null && i < dgvProducts.Rows.Count)
+                    {
+                        dgvProducts.Rows[i].Cells["Count"].Value = "0";
+                    }
+                }
+                MessageBox.Show("Đã reset tất cả số đếm sản phẩm!", "Thông báo",
+                                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Lỗi reset số đếm: {ex.Message}");
+            }
+        }
+
+        // Reset số đếm cho input cụ thể
+        public void ResetProductCount(int inputIndex)
+        {
+            try
+            {
+                if (inputIndex >= 0 && inputIndex < 4)
+                {
+                    productCounts[inputIndex] = 0;
+                    if (dgvProducts != null && inputIndex < dgvProducts.Rows.Count)
+                    {
+                        dgvProducts.Rows[inputIndex].Cells["Count"].Value = "0";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Lỗi reset số đếm input {inputIndex}: {ex.Message}");
+            }
+        }
+
+        // Ngắt kết nối Slave
+        public void DisconnectSlave()
+        {
+            try
+            {
+                isSlaveConnected = false;
+                currentSlaveID = 0xFE;
+
+                if (btnConnectSlaveID != null)
+                {
+                    btnConnectSlaveID.BackColor = Color.LightGray;
+                    btnConnectSlaveID.Text = "Kết nối Slave ID";
                 }
 
-                UpdateProductDataGrid();
-                MessageBox.Show($"Đã xóa sản phẩm: {productName}");
-            }
-        }
-
-        public void EditProduct(int productIndex, string newName)
-        {
-            if (productIndex >= 0 && productIndex < products.Count)
-            {
-                if (string.IsNullOrWhiteSpace(newName))
+                if (txtSlaveID != null)
                 {
-                    MessageBox.Show("Tên sản phẩm không được để trống!");
-                    return;
+                    txtSlaveID.ReadOnly = false;
                 }
 
-                // Kiểm tra trùng tên (trừ sản phẩm hiện tại)
-                if (products.Exists(p => p.Name.Equals(newName.Trim(), StringComparison.OrdinalIgnoreCase)
-                    && products.IndexOf(p) != productIndex))
-                {
-                    MessageBox.Show("Tên sản phẩm đã tồn tại!");
-                    return;
-                }
-
-                string oldName = products[productIndex].Name;
-                products[productIndex].Name = newName.Trim();
-                UpdateProductDataGrid();
-
-                MessageBox.Show($"Đã đổi tên từ '{oldName}' thành '{newName.Trim()}'");
+                // Reset số đếm
+                ResetProductCounts();
             }
-        }
-
-        public int GetProductCount(int productIndex)
-        {
-            if (productIndex >= 0 && productIndex < products.Count)
+            catch (Exception ex)
             {
-                return products[productIndex].Count;
+                Console.WriteLine($"Lỗi ngắt kết nối slave: {ex.Message}");
             }
-            return 0;
-        }
-
-        public void Dispose()
-        {
-            productCountTimer?.Stop();
-            productCountTimer?.Dispose();
         }
 
         // Properties
-        public bool IsSlaveConnected => isSlaveConnected;
-        public string CurrentSlaveID => currentSlaveID;
-    }
+        public bool IsSlaveConnected { get { return isSlaveConnected; } }
+        public byte CurrentSlaveID { get { return currentSlaveID; } }
+        public int[] ProductCounts { get { return (int[])productCounts.Clone(); } }
 
-    // Helper class
-    public class ProductInfo
-    {
-        public string Name { get; set; }
-        public int Count { get; set; }
-        public int InputChannel { get; set; }
+        // Lấy tên sản phẩm từ DataGridView
+        public string GetProductName(int inputIndex)
+        {
+            try
+            {
+                if (dgvProducts != null && inputIndex >= 0 && inputIndex < dgvProducts.Rows.Count)
+                {
+                    object val = dgvProducts.Rows[inputIndex].Cells["ProductName"].Value;
+                    return val == null ? ("Sản phẩm " + (inputIndex + 1)) : val.ToString();
+                }
+                return "Sản phẩm " + (inputIndex + 1);
+            }
+            catch
+            {
+                return "Sản phẩm " + (inputIndex + 1);
+            }
+        }
     }
 }
